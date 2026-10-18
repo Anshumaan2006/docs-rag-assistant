@@ -1,3 +1,5 @@
+import time
+from google.genai import errors
 import sys
 from dotenv import load_dotenv
 from google import genai
@@ -19,9 +21,15 @@ def ask(question, k=5):
         "Keep the answer short and clear.\n\n"
         f"Context:\n{context}\n\nQuestion: {question}"
     )
-    response = client.models.generate_content(model=MODEL, contents=prompt)
-    return response.text, chunks
-
+    for attempt in range(5):
+        try:
+            response = client.models.generate_content(model=MODEL, contents=prompt)
+            return response.text, chunks
+        except errors.ServerError:
+            wait = 10 * (attempt + 1)
+            print(f"Model busy, retrying in {wait} seconds...")
+            time.sleep(wait)
+    return "The model is busy right now. Please try again in a few minutes.", chunks
 
 if __name__ == "__main__":
     question = " ".join(sys.argv[1:])
