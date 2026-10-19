@@ -1,9 +1,10 @@
 import sys
 import chromadb
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from ingest import load_pdfs, chunk_pages
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+model = SentenceTransformer("all-mpnet-base-v2")
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 client = chromadb.PersistentClient(path="chroma_db")
 collection = client.get_or_create_collection("sklearn_docs")
 
@@ -20,11 +21,16 @@ def build_index():
     print(f"Stored {len(chunks)} chunks in the database")
 
 
-def search(question, k=5):
-    """Find the k chunks most similar in meaning to the question."""
+def search(question, k=5, rerank=True, candidates=20):
+    """Find the k best chunks. With rerank=True, a second model re-orders the top candidates."""
     query_embedding = model.encode([question]).tolist()
-    results = collection.query(query_embeddings=query_embedding, n_results=k)
-    return list(zip(results["documents"][0], results["metadatas"][0]))
+    n = candidates if rerank else k
+    results = collection.query(query_embeddings=query_embedding, n_results=n)
+    pairs = list(zip(results["documents"][0], results["metadatas"][0]))
+    if rerank:
+        scores = reranker.predict([(question, text) for text, _ in pairs])
+        pairs = [p for _, p in sorted(zip(scores, pairs), key=lambda x: x[0], reverse=True)]
+    return pairs[:k]
 
 
 if __name__ == "__main__":
